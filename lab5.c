@@ -12,6 +12,7 @@
  *   -u 4: RL rotation case
  *   -u 5: skewed insertion order
  *   -u 6: mixed insert/access test
+ *   -u 7: rotation stress + duplicate replacement (additional test)
  *
  * Access drivers build a tree using bst_insert and then access
  * keys in the tree using bst_access.
@@ -143,6 +144,27 @@ int main(int argc, char **argv)
                    acc, sizeof acc / sizeof(int),
                    NULL, 0,
                    "Mixed insert/access test");
+    }
+
+    if (UnitNumber == 7) {
+        /* Additional unit test:
+         * Stress test combining several rotation cases and a duplicate
+         * key replacement.  When run with -f avl this exercises LL, RR,
+         * LR, and RL rotations in succession; when run with -f bst it
+         * verifies ordered structure for a non-trivial sequence.
+         *
+         * exp_found marks which access keys should be present (1) or
+         * absent (0). The duplicate insert (key 50, value 999) is
+         * verified by the access of key 50 returning the replaced value.
+         */
+        const int ins[] = {50, 25, 75, 10, 30, 60, 80,
+                           5, 15, 27, 55, 50};
+        const int acc[] = {50, 25, 75, 5, 27, 80, 100, 0, 55};
+        const int exp[] = {1,  1,  1,  1, 1,  1,  0,   0, 1};
+        unitDriver(ins, sizeof ins / sizeof(int),
+                   acc, sizeof acc / sizeof(int),
+                   exp, sizeof exp / sizeof(int),
+                   "Rotation stress + duplicate replacement");
     }
 
     /* ----- large tree tests  ----- */
@@ -495,6 +517,7 @@ void getCommandLine(int argc, char **argv)
                 printf("              4 RL rotation case\n");
                 printf("              5 skewed insertion order\n");
                 printf("              6 mixed insert/access test\n");
+                printf("              7 rotation stress + duplicate replacement\n");
                 printf("  -o        run access test driver with optimum tree\n");
                 printf("  -r        run access test driver with random tree\n");
                 printf("  -p        run driver with poor insertion order\n");
