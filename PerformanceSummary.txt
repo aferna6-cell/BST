@@ -1,0 +1,83 @@
+================================================================================
+ECE 2230 - Machine Problem 5
+PERFORMANCE SUMMARY
+================================================================================
+
+Setup
+-----
+All access-driver runs use -w 16 (so n = 2^16 - 1 = 65,535 nodes inserted)
+and -t 100,000 random key lookups, drawn uniformly from a range twice the
+tree size so roughly half of the lookups succeed and half miss. Times are
+the elapsed wall-clock time of the lookup loop only (clock() before/after
+the loop), measured with -DVALIDATE off would be similar; -DVALIDATE only
+affects the build phase, not the search timings reported below.
+
+Measured results
+----------------
+
+  Build shape      Policy   IPL          IPL/n    Search ms   Trials
+  ---------------- ------   -----------  -------  ----------- -------
+  optimal (-o)     BST        917,506    14.0       30 ms     100,000
+  optimal (-o)     AVL        917,506    14.0       30 ms     100,000
+  random  (-r)     BST      1,278,709    19.5       50 ms     100,000
+  random  (-r)     AVL        938,160    14.3       30 ms     100,000
+  poor    (-p)     BST      8,814,338   134.5       70 ms     100,000
+  poor    (-p)     AVL        944,217    14.4       30 ms     100,000
+
+  (IPL/n is the average node depth, which is also the average cost of a
+  successful search measured in node visits. log2(65535) = 16.0 and the
+  minimum possible average depth for a complete 65,535-node tree is
+  approximately 14.0; the AVL numbers sit right at that bound.)
+
+Discussion
+----------
+
+(1) Performance across tree shapes.
+    Under the optimal build, BST and AVL produce the identical perfectly-
+    balanced tree, so the IPL and timings are equal: 917,506 and ~30 ms.
+    Under the random build, plain BST already does reasonably well -- its
+    IPL is about 1.39x optimal and the search loop runs ~67% slower -- but
+    AVL recovers near-optimal shape (1.02x optimal) and matches the
+    optimal-build timing. Under the poor build (a mixture of ascending,
+    descending, and zig-zag inserts), plain BST degrades dramatically:
+    its IPL grows to about 9.6x optimal and individual searches now visit
+    about 135 nodes on average instead of 14. AVL, by contrast, is
+    essentially unaffected -- 944,217 IPL is within 3% of the optimal
+    917,506 -- and the search timing stays at the same 30 ms as the
+    optimal case. The "shape" of a BST is therefore entirely determined
+    by the insertion order, while the shape of an AVL tree is bounded
+    regardless of insertion order.
+
+(2) Why AVL improves performance.
+    The AVL invariant -- |height(left) - height(right)| <= 1 at every
+    node -- forces the tree's height to stay within roughly 1.44 * log2(n+1)
+    of the theoretical minimum. After every insert, our implementation
+    walks back up the recursion stack, recomputes each ancestor's height,
+    and applies a single (LL or RR) or double (LR or RL) rotation the
+    first time the balance factor exceeds 1 in magnitude. Each rotation
+    is O(1), and at most O(log n) ancestors are touched, so the insert
+    itself remains O(log n). The payoff is that *every* search is
+    guaranteed O(log n), regardless of how adversarial the insertion
+    order is. Plain BST has no such guarantee: a sorted insertion of n
+    keys produces a chain of height n, turning every search into O(n).
+    The "poor" build is engineered to expose exactly that pathology, and
+    the measured numbers confirm it -- 134.5 average node visits per
+    search for BST versus 14.4 for AVL on the same key set.
+
+(3) Relation to expected O(log n) behavior.
+    For n = 65,535, log2(n+1) = 16, and the minimum possible average node
+    depth in any binary tree on n nodes is approximately
+    log2(n+1) - 1 + 1/n*ceil-correction ~= 14.0 . The AVL average depth
+    we observe (14.0 / 14.3 / 14.4 across the three build shapes) sits
+    essentially on this lower bound, which is the empirical signature of
+    O(log n) search cost. The optimal-build BST achieves the same number
+    by construction. The random-build BST's average depth of 19.5 lines
+    up well with the standard analytical result that a randomly built
+    BST has expected average depth ~1.39 * log2(n) -- 1.39 * 16 = 22.2,
+    and the measured 19.5 is within the variance for a single run. The
+    poor-build BST's average depth of 134.5 is an order of magnitude
+    larger than log2(n), which is exactly the O(n)-style degradation we
+    expect for adversarial input. In short: AVL maintains O(log n) search
+    cost no matter how the keys arrive, whereas plain BST achieves
+    O(log n) only for "nice" inputs and degrades toward O(n) when the
+    insertion order is sorted or near-sorted.
