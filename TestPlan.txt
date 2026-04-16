@@ -1,0 +1,290 @@
+================================================================================
+ECE 2230 - Machine Problem 5
+TEST PLAN
+================================================================================
+
+1. Overview of testing strategy
+-------------------------------
+The bst.c module is exercised in three layers:
+
+  (a) Compile-time validation. The Makefile passes -DVALIDATE so that every
+      call to bst_insert ends with bst_debug_validate(T). That function
+      verifies BST ordering on every insert, asserts that the cached size
+      matches the visited node count, and (for AVL trees) walks the tree
+      asserting that |height(left) - height(right)| <= 1 at every node.
+      Any structural bug therefore aborts the program at the offending
+      operation.
+
+  (b) Unit drivers (-u 0 .. -u 7) in lab5.c. These are small deterministic
+      tests that hit specific structural cases (duplicate replacement,
+      LL/RR/LR/RL rotations, skewed input, mixed input, plus a custom
+      stress test). Each test is run twice, once with -f bst and once with
+      -f avl, so we see how the same key sequence is shaped by each policy.
+
+  (c) Access drivers (-o, -r, -p) at -w 16 (65,535 nodes) and
+      -t 100,000 random lookups. These drive the implementation at scale
+      and produce the internal-path-length numbers used in the
+      Performance Summary.
+
+  (d) Memory-leak verification with valgrind on a representative subset
+      of the runs above.
+
+The build command used throughout is:
+    make clean && make
+which compiles with `-g -Wall -DVALIDATE` and links against -lm.
+
+
+2. Commands used
+----------------
+
+  Build:
+    make clean && make
+
+  Unit drivers (run for both BST and AVL):
+    ./lab5 -u 0 -f bst        ./lab5 -u 0 -f avl       # duplicate key
+    ./lab5 -u 1 -f bst        ./lab5 -u 1 -f avl       # LL rotation case
+    ./lab5 -u 2 -f bst        ./lab5 -u 2 -f avl       # RR rotation case
+    ./lab5 -u 3 -f bst        ./lab5 -u 3 -f avl       # LR rotation case
+    ./lab5 -u 4 -f bst        ./lab5 -u 4 -f avl       # RL rotation case
+    ./lab5 -u 5 -f bst        ./lab5 -u 5 -f avl       # skewed input
+    ./lab5 -u 6 -f bst        ./lab5 -u 6 -f avl       # mixed
+    ./lab5 -u 7 -f bst        ./lab5 -u 7 -f avl       # added stress test
+
+  Access drivers (small, with tree print):
+    ./lab5 -o -w 5 -t 0 -v -f bst
+    ./lab5 -o -w 5 -t 0 -v -f avl
+
+  Access drivers (large performance runs):
+    ./lab5 -o -w 16 -t 100000 -f bst
+    ./lab5 -o -w 16 -t 100000 -f avl
+    ./lab5 -r -w 16 -t 100000 -f bst
+    ./lab5 -r -w 16 -t 100000 -f avl
+    ./lab5 -p -w 16 -t 100000 -f bst
+    ./lab5 -p -w 16 -t 100000 -f avl
+
+  Memory-leak verification:
+    valgrind --leak-check=full --error-exitcode=1 ./lab5 -u 0 -f bst
+    valgrind --leak-check=full --error-exitcode=1 ./lab5 -u 6 -f avl
+    valgrind --leak-check=full --error-exitcode=1 ./lab5 -u 7 -f avl
+    valgrind --leak-check=full --error-exitcode=1 ./lab5 -p -w 8 -t 100 -f avl
+    valgrind --leak-check=full --error-exitcode=1 ./lab5 -r -w 8 -t 100 -f bst
+
+
+3. Requirements coverage map
+----------------------------
+
+  * Correct BST ordering        -- every insert path triggers
+                                   bst_debug_validate_rec, which fails
+                                   any out-of-range key. Every unit test
+                                   ends with "Validating tree...passed".
+
+  * Correct AVL balancing       -- VALIDATE-mode runs call rec_height
+                                   after every AVL insert, which asserts
+                                   the balance factor at every node is
+                                   in {-1, 0, +1}. Tests -u 1..4 verify
+                                   each of LL, RR, LR, RL rotations
+                                   directly; -u 5 verifies that a fully
+                                   skewed input under AVL flattens to a
+                                   balanced tree of height 3 instead of
+                                   height 6.
+
+  * Correct duplicate handling  -- bst_insert returns 0 on a duplicate
+                                   and the data block is freed and
+                                   replaced. Tested by -u 0 (BST) and
+                                   -u 0 (AVL); also exercised inside
+                                   -u 7 (the second insert of key 50).
+                                   bst_size remains unchanged across the
+                                   replacement (verified in unit output).
+
+  * Correct tree size           -- every unit driver prints
+                                   "Tree size = N" using bst_size, and
+                                   the access driver asserts
+                                   size == 2^Levels - 1 after building
+                                   the test tree, then asserts the size
+                                   is unchanged after the lookups.
+
+  * Correct internal path len   -- printed by every unit and access run.
+                                   For -u 6 (a perfectly balanced 15-node
+                                   tree built bottom-up by 50,30,70,...)
+                                   the IPL is 34, which matches the
+                                   theoretical IPL of the unique
+                                   complete binary tree on 15 nodes
+                                   (1*2 + 2*4 + 3*8 = 34). For -o -w 16
+                                   the IPL is 917,506, equal to the
+                                   minimum IPL for 65,535 nodes
+                                   (sum_{k=0..15} k*2^k ).
+
+  * No memory leaks             -- valgrind reports
+                                       in use at exit: 0 bytes in 0 blocks
+                                       All heap blocks were freed
+                                       ERROR SUMMARY: 0 errors
+                                   on every run listed in section 2.
+
+
+4. Example outputs
+------------------
+
+----------------------------------------
+4.1 Duplicate key replacement (-u 0)
+----------------------------------------
+
+    $ ./lab5 -u 0 -f bst
+    ====== Unit Driver: Duplicate key replacement ======
+    Tree policy: BST
+    Inserting 2 items into tree
+    Tree after inserts:
+       10
+     10
+    Validating tree...passed
+    Tree size = 1
+    Internal path length = 0
+    Access tests (2 total)
+      access(10) -> found value 10
+      access(5)  -> NULL
+    Final validation...passed
+
+The two inserts are (10, ptr->10) followed by (10, ptr->10). The first
+returns 1, the second returns 0; only one node exists and bst_size is 1.
+
+
+----------------------------------------
+4.2 LL / RR / LR / RL rotations (-u 1..4 with AVL)
+----------------------------------------
+
+LL rotation (insert 30, 20, 10 with -f avl):
+    Tree after inserts:
+              30-1
+       20-2
+              10-1
+      /-20-\
+     10    30
+    Validating tree...passed
+    Tree size = 3, Internal path length = 2
+
+RR rotation (insert 10, 20, 30 with -f avl) produces the same shape.
+LR rotation (insert 30, 10, 20 with -f avl) produces the same shape.
+RL rotation (insert 10, 30, 20 with -f avl) produces the same shape.
+
+For comparison, the same sequences with -f bst leave the keys in their
+insertion order (height 3, IPL 3) instead of being rebalanced. This
+directly demonstrates the difference between the two policies.
+
+
+----------------------------------------
+4.3 Skewed input (-u 5)
+----------------------------------------
+
+Insertion order: 10, 20, 30, 40, 50, 60.
+
+    $ ./lab5 -u 5 -f bst
+      Internal path length = 15      (chain of 6 nodes: 0+1+2+3+4+5)
+      Tree height = 6
+
+    $ ./lab5 -u 5 -f avl
+      Internal path length = 8       (balanced 6-node tree)
+      Tree height = 3
+
+This is the textbook degenerate-versus-balanced demonstration.
+
+
+----------------------------------------
+4.4 Larger mixed test (-u 6)
+----------------------------------------
+
+15 keys are inserted in a level-order pattern, producing a perfectly
+balanced complete binary tree under both policies:
+
+           /----------50----------\
+     /----30----\            /----70----\
+  /-20-\      /-40-\      /-60-\      /-80-\
+ 10    25    35    45    55    65    75    85
+
+bst_size = 15, bst_int_path_len = 34, all accesses on
+{50, 10, 45, 65, 90, 33} return the expected found / NULL pair.
+
+
+----------------------------------------
+4.5 Additional unit test (-u 7)
+----------------------------------------
+
+This is the new test we added. It inserts:
+
+    50, 25, 75, 10, 30, 60, 80, 5, 15, 27, 55, 50
+
+The final 50 is a duplicate, so size grows from 11 to 11 (the value is
+replaced in place). Access keys are
+{50, 25, 75, 5, 27, 80, 100, 0, 55} with the expected-found vector
+{1, 1, 1, 1, 1, 1, 0, 0, 1}, asserted via the exp_found argument of
+unitDriver(). Output:
+
+    Tree size = 11
+    Internal path length = 22
+      access(50) -> found value 50
+      access(25) -> found value 25
+      access(75) -> found value 75
+      access(5)  -> found value 5
+      access(27) -> found value 27
+      access(80) -> found value 80
+      access(100) -> NULL
+      access(0)  -> NULL
+      access(55) -> found value 55
+    Final validation...passed
+
+Both -f bst and -f avl pass the asserts. Under -f avl, the
+debug_validate call after every insert proves the tree stays balanced
+through the full sequence (including the duplicate replacement).
+
+
+----------------------------------------
+4.6 Access driver, optimal small tree (-o -w 5 -t 0 -v -f bst)
+----------------------------------------
+
+build_optimal at level 5 inserts the 31 even keys 2..62 in level order.
+bst_debug_print_tree shows the perfect tree:
+
+                       /----------------------32----------------------\
+           /----------16----------\                        /----------48----------\
+     /-----8----\            /----24----\            /----40----\            /----56----\
+  /--4-\      /-12-\      /-20-\      /-28-\      /-36-\      /-44-\      /-52-\      /-60-\
+  2     6    10    14    18    22    26    30    34    38    42    46    50    54    58    62
+
+Validation passes. Same shape under -f avl (the balanced order avoids
+any rotations).
+
+
+----------------------------------------
+4.7 Large access drivers (-w 16, n = 65,535, t = 100,000)
+----------------------------------------
+
+  -o -f bst : IPL = 917,506    time = 30 ms   size = 65,535   passed
+  -o -f avl : IPL = 917,506    time = 30 ms   size = 65,535   passed
+  -r -f bst : IPL = 1,278,709  time = 50 ms   size = 65,535   passed
+  -r -f avl : IPL =   938,160  time = 30 ms   size = 65,535   passed
+  -p -f bst : IPL = 8,814,338  time = 70 ms   size = 65,535   passed
+  -p -f avl : IPL =   944,217  time = 30 ms   size = 65,535   passed
+
+Successful + unsuccessful accesses sum to 100,000 in every run, as
+expected. See PerformanceSummary.txt for analysis.
+
+
+----------------------------------------
+4.8 Memory-leak verification
+----------------------------------------
+
+For every command listed in section 2, valgrind reports:
+
+    in use at exit: 0 bytes in 0 blocks
+    All heap blocks were freed -- no leaks are possible
+    ERROR SUMMARY: 0 errors from 0 contexts
+
+For example, ./lab5 -u 6 -f avl makes 32 allocations and 32 frees;
+./lab5 -p -w 8 -t 100 -f avl makes 512 allocations and 512 frees.
+
+
+5. Conclusion
+-------------
+The implementation passes BST ordering and AVL balance checks (asserted
+by the supplied bst_debug_validate after every insert), correctly
+replaces duplicates without changing tree size, reports correct size and
+internal path length on every unit test, and shows zero leaks under
+valgrind across all tested workloads.
